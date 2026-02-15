@@ -67,7 +67,7 @@ def load_models():
 
     chat = ChatGroq(
         temperature=0.3,
-        model="llama-3-3b-instruct",
+        model="llama-3-8b-instant",
         groq_api_key=GROQ_API_KEY
     )
 
