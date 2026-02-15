@@ -21,12 +21,10 @@ from langchain_core.messages import HumanMessage, SystemMessage
 # CONFIG
 # =========================================================
 
-GITHUB_REPO = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/pdfs/"
+GITHUB_REPO = "https://github.com/rahulpakhare4/mydoc/blob/main"
 PDF_FILES = [
-    "file1.pdf",
-    "file2.pdf"
+    "/Rahul%20Pakhare.pdf"    
 ]
-
 
 # =========================================================
 # LOAD API KEY
