@@ -1,19 +1,21 @@
 import os
 import sys
+import shutil
 import streamlit as st
 
-# Fix sqlite issue for Streamlit Cloud
+# ================================
+# SQLITE FIX (Streamlit Cloud)
+# ================================
 import pysqlite3
 sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 
 import chromadb
-import numpy as np
 from pypdf import PdfReader
 
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_groq import ChatGroq
 from langchain.memory import ConversationBufferMemory
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 # =========================================================
@@ -35,13 +37,25 @@ if not GROQ_API_KEY:
 
 
 # =========================================================
-# SIMPLE LIGHTWEIGHT EMBEDDING
-# (No heavy ML dependencies)
+# SIMPLE FIXED EMBEDDING FUNCTION (NO TORCH)
 # =========================================================
 
-def simple_embedding(text):
-    vec = [hash(word) % 1000 for word in text.split()[:128]]
-    return np.array(vec, dtype=float)
+def simple_embedding(text, dim=128):
+    vec = [0] * dim
+    words = text.split()
+
+    for i in range(min(len(words), dim)):
+        vec[i] = hash(words[i]) % 1000
+
+    return vec
+
+
+# =========================================================
+# RESET DB IF DIMENSION MISMATCH
+# =========================================================
+
+if os.path.exists("./chroma_db"):
+    shutil.rmtree("./chroma_db")
 
 
 # =========================================================
@@ -64,7 +78,10 @@ def load_models():
         )
     )
 
-    collection = chroma_client.get_or_create_collection("knowledge")
+    collection = chroma_client.get_or_create_collection(
+        name="knowledge",
+        metadata={"hnsw:space": "cosine"}
+    )
 
     memory = ConversationBufferMemory(
         memory_key="chat_history",
@@ -78,31 +95,40 @@ chat, collection, memory = load_models()
 
 
 # =========================================================
-# LOAD PDF FROM LOCAL FILE
+# LOAD PDF
 # =========================================================
 
-def load_pdf_text(file_path):
-    reader = PdfReader(file_path)
+def read_pdf():
+
+    if not os.path.exists(PDF_FILE):
+        st.error(f"{PDF_FILE} not found in repo")
+        return ""
+
+    reader = PdfReader(PDF_FILE)
     text = ""
+
     for page in reader.pages:
         text += page.extract_text() or ""
+
     return text
 
 
 # =========================================================
-# TEXT SPLIT
+# SPLIT TEXT
 # =========================================================
 
-def chunk_text(text):
+def split_text(text):
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=600,
         chunk_overlap=100
     )
+
     return splitter.split_text(text)
 
 
 # =========================================================
-# LOAD PDF INTO VECTOR DB
+# LOAD PDF INTO CHROMA
 # =========================================================
 
 def load_pdf_to_db():
@@ -110,19 +136,14 @@ def load_pdf_to_db():
     if collection.count() > 0:
         return
 
-    if not os.path.exists(PDF_FILE):
-        st.error(f"{PDF_FILE} not found in repo")
+    text = read_pdf()
+
+    if not text:
         return
 
-    text = load_pdf_text(PDF_FILE)
+    chunks = split_text(text)
 
-    if not text.strip():
-        st.error("PDF contains no readable text")
-        return
-
-    chunks = chunk_text(text)
-
-    embeddings = [simple_embedding(c).tolist() for c in chunks]
+    embeddings = [simple_embedding(c) for c in chunks]
 
     collection.add(
         ids=[str(i) for i in range(len(chunks))],
@@ -141,9 +162,9 @@ load_pdf_to_db()
 def retrieve_context(query):
 
     if collection.count() == 0:
-        return ["No documents available"]
+        return ["No documents"]
 
-    q_embed = simple_embedding(query).tolist()
+    q_embed = simple_embedding(query)
 
     results = collection.query(
         query_embeddings=[q_embed],
@@ -160,10 +181,10 @@ def retrieve_context(query):
 def ask_ai(question):
 
     system_prompt = """
-You are an AI clone of Rahul Pakhare, a GIS consultant.
-Speak professionally and concisely.
-Answer only from provided context.
-If answer not found, say "Not available in my data".
+You are Rahul Pakhare's AI clone.
+Answer professionally.
+Use provided context only.
+If answer not in context say "Not found in document".
 """
 
     history = memory.load_memory_variables({}).get("chat_history", [])[-6:]
