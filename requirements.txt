@@ -7,4 +7,4 @@ langchain-groq==0.1.9
 pypdf==4.2.0
 python-dotenv==1.0.1
 tiktoken==0.7.0
-pysqlite3-binary>=0.5.4
+pysqlite3-binary==0.5.4.post2
