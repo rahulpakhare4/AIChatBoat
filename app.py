@@ -2,24 +2,15 @@ import os
 import sys
 import streamlit as st
 
-# =========================================================
-# SQLITE FIX FOR STREAMLIT CLOUD
-# =========================================================
-try:
-    import pysqlite3
-    sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
-except:
-    pass
+# Fix sqlite issue for Streamlit Cloud
+import pysqlite3
+sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 
-
-# =========================================================
-# IMPORTS
-# =========================================================
 import chromadb
+import numpy as np
 from pypdf import PdfReader
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from langchain.memory import ConversationBufferMemory
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -28,36 +19,51 @@ from langchain_core.messages import HumanMessage, SystemMessage
 # =========================================================
 # CONFIG
 # =========================================================
-PDF_PATH = "Rahul Pakhare.pdf"
+
+PDF_FILE = "Rahul Pakhare.pdf"
 
 
 # =========================================================
 # LOAD API KEY
 # =========================================================
+
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY")
 
 if not GROQ_API_KEY:
-    st.error("Missing GROQ_API_KEY in Streamlit secrets.")
+    st.error("Missing GROQ_API_KEY in secrets.toml")
     st.stop()
 
 
 # =========================================================
-# LOAD MODELS (CACHED)
+# SIMPLE LIGHTWEIGHT EMBEDDING
+# (No heavy ML dependencies)
 # =========================================================
+
+def simple_embedding(text):
+    vec = [hash(word) % 1000 for word in text.split()[:128]]
+    return np.array(vec, dtype=float)
+
+
+# =========================================================
+# LOAD MODELS
+# =========================================================
+
 @st.cache_resource
 def load_models():
 
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
-    )
-
-    llm = ChatGroq(
+    chat = ChatGroq(
         temperature=0.3,
         model="llama-3.1-8b-instant",
         groq_api_key=GROQ_API_KEY
     )
 
-    chroma_client = chromadb.Client()
+    chroma_client = chromadb.Client(
+        chromadb.Settings(
+            persist_directory="./chroma_db",
+            anonymized_telemetry=False
+        )
+    )
+
     collection = chroma_client.get_or_create_collection("knowledge")
 
     memory = ConversationBufferMemory(
@@ -65,64 +71,79 @@ def load_models():
         return_messages=True
     )
 
-    return embeddings, llm, collection, memory
+    return chat, collection, memory
 
 
-embedding_model, chat, collection, memory = load_models()
+chat, collection, memory = load_models()
 
 
 # =========================================================
-# LOAD PDF + CREATE VECTOR DB
+# LOAD PDF FROM LOCAL FILE
 # =========================================================
-@st.cache_resource
-def load_pdf():
 
-    if collection.count() > 0:
-        return "Already Loaded"
-
-    if not os.path.exists(PDF_PATH):
-        return "PDF NOT FOUND"
-
-    reader = PdfReader(PDF_PATH)
-
+def load_pdf_text(file_path):
+    reader = PdfReader(file_path)
     text = ""
     for page in reader.pages:
         text += page.extract_text() or ""
+    return text
 
+
+# =========================================================
+# TEXT SPLIT
+# =========================================================
+
+def chunk_text(text):
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=700,
-        chunk_overlap=120
+        chunk_size=600,
+        chunk_overlap=100
     )
+    return splitter.split_text(text)
 
-    chunks = splitter.split_text(text)
 
-    embeddings = embedding_model.embed_documents(chunks)
+# =========================================================
+# LOAD PDF INTO VECTOR DB
+# =========================================================
+
+def load_pdf_to_db():
+
+    if collection.count() > 0:
+        return
+
+    if not os.path.exists(PDF_FILE):
+        st.error(f"{PDF_FILE} not found in repo")
+        return
+
+    text = load_pdf_text(PDF_FILE)
+
+    if not text.strip():
+        st.error("PDF contains no readable text")
+        return
+
+    chunks = chunk_text(text)
+
+    embeddings = [simple_embedding(c).tolist() for c in chunks]
 
     collection.add(
-        ids=[f"id_{i}" for i in range(len(chunks))],
+        ids=[str(i) for i in range(len(chunks))],
         documents=chunks,
         embeddings=embeddings
     )
 
-    return "Loaded"
 
-
-status = load_pdf()
-
-if status == "PDF NOT FOUND":
-    st.error("Rahul Pakhare.pdf not found in repo folder.")
-    st.stop()
+load_pdf_to_db()
 
 
 # =========================================================
-# RETRIEVER
+# RETRIEVE CONTEXT
 # =========================================================
+
 def retrieve_context(query):
 
     if collection.count() == 0:
-        return ["No knowledge available"]
+        return ["No documents available"]
 
-    q_embed = embedding_model.embed_query(query)
+    q_embed = simple_embedding(query).tolist()
 
     results = collection.query(
         query_embeddings=[q_embed],
@@ -135,35 +156,22 @@ def retrieve_context(query):
 # =========================================================
 # ASK AI
 # =========================================================
+
 def ask_ai(question):
 
     system_prompt = """
-You are an AI clone of Rahul Pakhare, a GIS Consultant.
-
-Rules:
-- Answer professionally
-- Be concise
-- Use provided context only
-- If answer not found, say: "I don't have information about that."
+You are an AI clone of Rahul Pakhare, a GIS consultant.
+Speak professionally and concisely.
+Answer only from provided context.
+If answer not found, say "Not available in my data".
 """
 
-    context = retrieve_context(question)
     history = memory.load_memory_variables({}).get("chat_history", [])[-6:]
+    context = retrieve_context(question)
 
     messages = [
         SystemMessage(content=system_prompt),
-        HumanMessage(
-            content=f"""
-Conversation History:
-{history}
-
-Context:
-{context}
-
-User Question:
-{question}
-"""
-        )
+        HumanMessage(content=f"History:{history}\nContext:{context}\nQ:{question}")
     ]
 
     try:
@@ -183,22 +191,18 @@ User Question:
 # =========================================================
 # UI
 # =========================================================
-st.set_page_config(page_title="Rahul AI Clone", page_icon="🤖")
 
 st.title("🤖 Rahul AI Clone")
 
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# show chat history
 for msg in st.session_state.history:
     st.chat_message(msg["role"]).write(msg["content"])
 
-# input
-question = st.chat_input("Ask something about Rahul...")
+question = st.chat_input("Ask something...")
 
 if question:
-
     st.session_state.history.append({"role": "user", "content": question})
 
     with st.spinner("Thinking..."):
