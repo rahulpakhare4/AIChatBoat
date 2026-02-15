@@ -1,12 +1,20 @@
 import os
 import sys
-import requests
 import streamlit as st
 
-# Fix sqlite issue
-import pysqlite3
-sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+# =========================================================
+# SQLITE FIX FOR STREAMLIT CLOUD
+# =========================================================
+try:
+    import pysqlite3
+    sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+except:
+    pass
 
+
+# =========================================================
+# IMPORTS
+# =========================================================
 import chromadb
 from pypdf import PdfReader
 
@@ -20,46 +28,36 @@ from langchain_core.messages import HumanMessage, SystemMessage
 # =========================================================
 # CONFIG
 # =========================================================
+PDF_PATH = "Rahul Pakhare.pdf"
 
-GITHUB_REPO = "https://github.com/rahulpakhare4/mydoc/tree/main"
-PDF_FILES = [
-    "Rahul%20Pakhare.pdf"    
-]
 
 # =========================================================
 # LOAD API KEY
 # =========================================================
-
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY")
 
 if not GROQ_API_KEY:
-    st.error("Missing GROQ_API_KEY in secrets.toml")
+    st.error("Missing GROQ_API_KEY in Streamlit secrets.")
     st.stop()
 
 
 # =========================================================
-# LOAD MODELS
+# LOAD MODELS (CACHED)
 # =========================================================
 @st.cache_resource
 def load_models():
 
-    embedding_model = HuggingFaceEmbeddings(
+    embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
 
-    chat = ChatGroq(
+    llm = ChatGroq(
         temperature=0.3,
         model="llama-3.1-8b-instant",
         groq_api_key=GROQ_API_KEY
     )
 
-    chroma_client = chromadb.Client(
-        chromadb.Settings(
-            persist_directory="./chroma_db",
-            anonymized_telemetry=False
-        )
-    )
-
+    chroma_client = chromadb.Client()
     collection = chroma_client.get_or_create_collection("knowledge")
 
     memory = ConversationBufferMemory(
@@ -67,94 +65,68 @@ def load_models():
         return_messages=True
     )
 
-    return embedding_model, chat, collection, memory
+    return embeddings, llm, collection, memory
 
 
 embedding_model, chat, collection, memory = load_models()
 
 
 # =========================================================
-# DOWNLOAD PDF FROM GITHUB
+# LOAD PDF + CREATE VECTOR DB
 # =========================================================
-def download_pdf(url):
-    response = requests.get(url)
-    return response.content
+@st.cache_resource
+def load_pdf():
 
+    if collection.count() > 0:
+        return "Already Loaded"
 
-# =========================================================
-# READ PDF
-# =========================================================
-def load_pdf_from_bytes(pdf_bytes):
-    reader = PdfReader(pdf_bytes)
+    if not os.path.exists(PDF_PATH):
+        return "PDF NOT FOUND"
+
+    reader = PdfReader(PDF_PATH)
+
     text = ""
     for page in reader.pages:
         text += page.extract_text() or ""
-    return text
 
-
-# =========================================================
-# TEXT SPLIT
-# =========================================================
-def chunk_text(text):
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=600,
-        chunk_overlap=100
+        chunk_size=700,
+        chunk_overlap=120
     )
-    return splitter.split_text(text)
 
+    chunks = splitter.split_text(text)
 
-# =========================================================
-# LOAD ALL PDFS FROM REPO
-# =========================================================
-def load_repo_pdfs():
-
-    if collection.count() > 0:
-        return
-
-    all_chunks = []
-
-    for file in PDF_FILES:
-        url = GITHUB_REPO + file
-
-        try:
-            pdf_bytes = download_pdf(url)
-            text = load_pdf_from_bytes(pdf_bytes)
-            chunks = chunk_text(text)
-            all_chunks.extend(chunks)
-
-        except Exception as e:
-            st.warning(f"Failed to load {file}: {e}")
-
-    if not all_chunks:
-        st.error("No PDFs loaded")
-        return
-
-    embeddings = embedding_model.embed_documents(all_chunks)
+    embeddings = embedding_model.embed_documents(chunks)
 
     collection.add(
-        ids=[str(i) for i in range(len(all_chunks))],
-        documents=all_chunks,
+        ids=[f"id_{i}" for i in range(len(chunks))],
+        documents=chunks,
         embeddings=embeddings
     )
 
+    return "Loaded"
 
-# Load PDFs automatically
-load_repo_pdfs()
+
+status = load_pdf()
+
+if status == "PDF NOT FOUND":
+    st.error("Rahul Pakhare.pdf not found in repo folder.")
+    st.stop()
 
 
 # =========================================================
-# RETRIEVE CONTEXT
+# RETRIEVER
 # =========================================================
 def retrieve_context(query):
 
     if collection.count() == 0:
-        return ["No documents available"]
+        return ["No knowledge available"]
 
     q_embed = embedding_model.embed_query(query)
 
     results = collection.query(
         query_embeddings=[q_embed],
-        n_results=2
+        n_results=3
     )
 
     return results["documents"][0]
@@ -166,17 +138,32 @@ def retrieve_context(query):
 def ask_ai(question):
 
     system_prompt = """
-You are an AI clone of Rahul Pakhare, a GIS consultant.
-Speak professionally and concisely.
-Never hallucinate.
+You are an AI clone of Rahul Pakhare, a GIS Consultant.
+
+Rules:
+- Answer professionally
+- Be concise
+- Use provided context only
+- If answer not found, say: "I don't have information about that."
 """
 
-    history = memory.load_memory_variables({}).get("chat_history", [])[-6:]
     context = retrieve_context(question)
+    history = memory.load_memory_variables({}).get("chat_history", [])[-6:]
 
     messages = [
         SystemMessage(content=system_prompt),
-        HumanMessage(content=f"History:{history}\nContext:{context}\nQ:{question}")
+        HumanMessage(
+            content=f"""
+Conversation History:
+{history}
+
+Context:
+{context}
+
+User Question:
+{question}
+"""
+        )
     ]
 
     try:
@@ -196,17 +183,22 @@ Never hallucinate.
 # =========================================================
 # UI
 # =========================================================
+st.set_page_config(page_title="Rahul AI Clone", page_icon="🤖")
+
 st.title("🤖 Rahul AI Clone")
 
 if "history" not in st.session_state:
     st.session_state.history = []
 
+# show chat history
 for msg in st.session_state.history:
     st.chat_message(msg["role"]).write(msg["content"])
 
-question = st.chat_input("Ask something...")
+# input
+question = st.chat_input("Ask something about Rahul...")
 
 if question:
+
     st.session_state.history.append({"role": "user", "content": question})
 
     with st.spinner("Thinking..."):
