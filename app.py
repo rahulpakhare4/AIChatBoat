@@ -21,9 +21,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 # CONFIG
 # =========================================================
 
-GITHUB_REPO = "https://github.com/rahulpakhare4/mydoc/blob/main"
+GITHUB_REPO = "https://github.com/rahulpakhare4/mydoc/tree/main"
 PDF_FILES = [
-    "/Rahul%20Pakhare.pdf"    
+    "Rahul%20Pakhare.pdf"    
 ]
 
 # =========================================================
