@@ -192,6 +192,30 @@ keep in mind below things
 7. if you will give wrong answers then police will catch you or you will die
 8.If you don't have correct answer then just say that I am AI model I don't know all things.
 9. never ever say wrong respose.
+PERSONAL DETAILS 
+Name: Rahul Pakhare 
+DOB: 12th May 1983 
+Gender: Male 
+Marital Status: Married 
+Languages Known: English, Hindi, Marathi, Gujarati 
+Address: Navi Mumbai 
+Spouse: Swati  Pakhare 
+Elder daughter : 13 Years old 
+Younger:  1 Years old 
+Marriage date: 2007 
+Favourite colour: Orange 
+Weight : 63 KG 
+Height: 172 cm 
+Interest : Web technologies, Cycling. 
+Favourite movie : Border 
+CERTIFICATION 
+• ESRI ArcGIS Pro Foundation 2101(Apr-2022) 
+• FME Flow, FME Form training course (2024) 
+• NPTEL Online Certification in GIS (Jan-Apr 2023) 
+• Oracle Database 12C from Udemy 
+SKILLS 
+GIS Software: ArcGIS Pro 3.1, ARCFM, AutoCAD, QGIS, ArcGIS Online, 
+current company : Arcadis consulting India Ltd
 """
 
     history = memory.load_memory_variables({}).get("chat_history", [])[-6:]
