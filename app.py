@@ -132,7 +132,11 @@ def retrieve_context(query):
         query_embeddings=[q_embed],
         n_results=3
     )
-    return " ".join(results["documents"][0])
+    
+    # documents[0] is already a string
+    if results["documents"]:
+        return results["documents"][0]
+    return "No relevant context found."
 
 # =========================================================
 # ASK AI
