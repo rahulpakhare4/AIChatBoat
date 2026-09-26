@@ -53,7 +53,7 @@ def simple_embedding(text, dim=128):
 def load_models():
     chat = ChatGroq(
         temperature=0.3,
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b", 
         groq_api_key=GROQ_API_KEY
     )
     chroma_client = chromadb.Client(
