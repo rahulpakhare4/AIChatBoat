@@ -164,6 +164,7 @@ Interest : Web technologies, Cycling.
 Favourite movie : Border 
 CERTIFICATION 
 • ESRI ArcGIS Pro Foundation 2101(Apr-2022) 
+• ESRI ArcGIS online administrator(July-2026) 
 • FME Flow, FME Form training course (2024) 
 • NPTEL Online Certification in GIS (Jan-Apr 2023) 
 • Oracle Database 12C from Udemy 
