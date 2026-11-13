@@ -19,7 +19,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 # =========================================================
 # CONFIG
 # =========================================================
-PDF_FILE = "Rahul_Pakhare_GIS_Consultant"
+PDF_FILE = "Rahul_Pakhare_GIS_Consultant_new.pdf"
 CHROMA_DB_DIR = "./chroma_db"
 
 # =========================================================
